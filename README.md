@@ -1,7 +1,7 @@
 # libpglite
 - libpglite is a thin load/wrapper around postgresql backend, initdb, and some transport facilities inspired from frontends.
 - initdb part is fully automated to create a default database "template1" with user "postgres" with md5 password "password" in "/tmp/pglite/base" folder ( real or not ).
-- libpglite part only take queries in input, and output results. All encoded in UTF-8.
+- libpglite part only takes queries in input, and output results. All encoded in UTF-8.
 
     - possible inputs are:
 
@@ -34,9 +34,9 @@ while repl style uses C style \0 termination of query buffer, or EOF in case of 
 
 ```
     size of reply when using wasm memory is given by  pglite.interactive_read() as an integer.
-    offset of reply is 3+query size as in this layout:
+    offset of reply is 2+query size as in this layout:
 
-    [ 1, query, gap of 2,  result ]
+    [ 1, query, gap of 1,  result ]
 ```
 
 
@@ -44,7 +44,8 @@ while repl style uses C style \0 termination of query buffer, or EOF in case of 
 
 ## libpglite API (WIP!):
 
-in any case default C calling conventions apply and filesystems follow POSIX conventions.
+in any case default C calling conventions apply and filesystems follow POSIX conventions. C.UTF-8 is the default locale and cannot be changed.
+
 
 for generic setup,  setenv/getenv is used
 Keeping keys close to actual postgres env control, or maybe prefixed PGL_ when it only concerns the pglite bridge.
@@ -65,19 +66,19 @@ IDB_HASUSER 0b1000  → the user exists
 - pg_conf(key, value)
     - value to set in PREFIX/postgresql.conf
 - pgl_backend()
-    - (re)init pg after initdb and config edition ( in postgres it would be the equivalent of fork(). it can change username but is tied to it till kill/restart once done ).
+    - (re)init postgres backend after initdb and config edition ( in postgres it would be the equivalent of fork(). it can change username but is tied to it till fred and restart).
 
 ___
-transport related , need probably better names. ( interactive_one is CPython , CMA comes  from linux kernel ). A PRIORI the transport is only tied to a portion of shared memory, a memory context ( which is specific to above backend)  and a 8KB buffer that WILL overflow so we need to dump to a file when it happens.
+Transport related , need probably better names. ( interactive_one is CPython , CMA comes  from linux kernel ). A PRIORI the transport is only tied to a portion of shared memory, a memory context ( which is specific to above backend)  and a 8KB buffer that WILL overflow so we need to dump to a file when it happens.
 ___
 
 
 - use_wire(0/1)
-    - data in buffer will use wire protocol
+    - state if data in buffer will use wire protocol
 - interactive_write(len)
     - length of input data when using cma buffer, force the use of cma for input.
 - use_cma(0/1)
-    - reply in cma buffer else default to socket files.
+    - state if cma buffer is used for reply else default to same as input. cannot yet redirect repl output.
 - interactive_one(void)
     - process input stream ( auto selected from socketfiles/cma)
 - interactive_read() → int
@@ -109,7 +110,7 @@ clear_error(void): clear previous exception.
 # pglite-bindings
 (WIP) various language support for libpglite native
 
-Currently working with wasmtime offical embedding:
+Currently testing working with wasmtime offical embedding:
 
 - python unix socket gateway to pglite ( tested against pg_dump/psql )
 
@@ -123,7 +124,7 @@ Currently working with wasmtime offical embedding:
 
 Also some Community experiments :
 
-    a Go REPL:
+    WIP Go REPL:
         https://github.com/sgosiaco/pglite-go/
 
     WIP kotlin/graalvm:
@@ -131,7 +132,7 @@ Also some Community experiments :
 
 
 
-tracking:
+issues tracking:
 
     generic:
     https://github.com/electric-sql/pglite/issues/89

@@ -82,9 +82,10 @@ initdb returned : {bin(rv)}
 
 {SI(pglite.Memory.size)=}
 
-{SI(pglite.Memory.data_len)=} <= with included 32 MiB shared memory
+{SI(pglite.Memory.data_len)=} <= with included 12 MiB shared memory
 
 {pglite=}
+
 """
 )
 for k in dir(pglite):
@@ -141,7 +142,7 @@ class Client:
                 if reply:
 #                    cdata = bytes( pglite.Memory.mpeek(0, CMA_QUERY+2 +  reply)[CMA_QUERY+2:] )
                     print( pglite.Memory.mpeek(0, CMA_QUERY+3+reply) )
-                    cdata = bytes( pglite.Memory.mpeek(3+CMA_QUERY,CMA_QUERY+3+reply) )
+                    cdata = bytes( pglite.Memory.mpeek(2+CMA_QUERY,CMA_QUERY+2+reply) )
                     print(f"CMA reply length {reply} at {CMA_QUERY+3}:", cdata)
                     pglite.interactive_write(0)
                     CMA_QUERY = 0
@@ -302,9 +303,6 @@ async def repl():
 async def main():
     global DONE
 
-    if not USE_CMA:
-        # pglite.use_socketfile()
-        pass
 
     if "inet" not in sys.argv:
         # remove the socket file if it already exists
@@ -328,21 +326,22 @@ async def main():
     # Listen for incoming connections
     server.listen(1)
 
-    asyncio.get_running_loop().create_task(tests())
+    if not USE_CMA:
 
-    # wait above test finished before accept connections
-    while True:
-        if DONE:
-            break
-        pglite.interactive_one()
-        await asyncio.sleep(0.016)
+        asyncio.get_running_loop().create_task(tests())
 
-    asyncio.get_running_loop().create_task(repl())
+        # wait above test finished before accept connections
+        while True:
+            if DONE:
+                break
+            pglite.interactive_one()
+            await asyncio.sleep(0.016)
+
+        asyncio.get_running_loop().create_task(repl())
 
     while not USER_QUIT:
         print("Server is listening for incoming connections...")
         connection, client_address = server.accept()
-
 
         FD = connection.fileno()
         await Client(connection, "127.0.0.1", 5432).run()
