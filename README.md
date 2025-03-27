@@ -42,6 +42,62 @@ while repl style uses C style \0 termination of query buffer, or EOF in case of 
 
 
 
+## libpglite API (WIP!):
+
+in any case default C calling conventions apply and filesystems follow POSIX conventions.
+
+for generic setup,  setenv/getenv is used
+Keeping keys close to actual postgres env control, or maybe prefixed PGL_ when it only concerns the pglite bridge.
+
+___
+in order of call :
+___
+
+- pg_initdb() → int
+    - call initdb and returns status from bitmask
+```
+IDB_OK 0b11111110 → db has resumed normally
+IDB_FAILED 0b0001  → creation or resume of db failed
+IDB_CALLED 0b0010  → initdb was called and db created
+IDB_HASDB 0b0100  → the db has been found
+IDB_HASUSER 0b1000  → the user exists
+```
+- pg_conf(key, value)
+    - value to set in PREFIX/postgresql.conf
+- pgl_backend()
+    - (re)init pg after initdb and config edition ( in postgres it would be the equivalent of fork(). it can change username but is tied to it till kill/restart once done ).
+
+___
+transport related , need probably better names. ( interactive_one is CPython , CMA comes  from linux kernel ). A PRIORI the transport is only tied to a portion of shared memory, a memory context ( which is specific to above backend)  and a 8KB buffer that WILL overflow so we need to dump to a file when it happens.
+___
+
+
+- use_wire(0/1)
+    - data in buffer will use wire protocol
+- interactive_write(len)
+    - length of input data when using cma buffer, force the use of cma for input.
+- use_cma(0/1)
+    - reply in cma buffer else default to socket files.
+- interactive_one(void)
+    - process input stream ( auto selected from socketfiles/cma)
+- interactive_read() → int
+    - size of reply from pgcore.
+
+```
+possible negative return:
+    overflow happened on CMA reply
+    whole content is to be found in a memory file instead
+    possible to index memory files names with abs(return value)
+```
+
+___
+error handling ( currently N/I outside emscripten build )
+___
+
+clear_error(void): clear previous exception.
+
+
+
 
 
 
@@ -87,6 +143,7 @@ tracking:
 
     react:
     https://github.com/electric-sql/pglite/issues/87
+
 
 
 
