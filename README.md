@@ -12,7 +12,7 @@ mode is controlled by pglite.use_wire(0/1)
 -> pglite.use_wire(1) means use wire protocol,
 -> pglite.use_wire(0) means repl style.
 
-NB: wire mode requires you to know the size of encoded query ( set with pglite.interactive_write(int) ).
+NB: currently wire mode requires you to know the size of encoded query ( set with pglite.interactive_write(int) ).
 while repl style uses C style \0 termination of query buffer, or EOF in case of file transport.
 ```
 
@@ -21,14 +21,14 @@ while repl style uses C style \0 termination of query buffer, or EOF in case of 
 
 #### Queries:
 
-- from memory at (wasm) address 0x1
-- from a file named  "/tmp/pglite/base/.s.PGSQL.5432.lock.in" : the file is renamed to "/tmp/pglite/base/.s.PGSQL.5432.in" when ready
+- From memory at (wasm) address 0x1
+- From a file named  "/tmp/pglite/base/.s.PGSQL.5432.lock.in" (you can write in chunks). When done rename it to "/tmp/pglite/base/.s.PGSQL.5432.in" (renaming is an atomic operation).
 
 
 #### Replies:
 
-- when using REPL style input, reply is printed on STDOUT as utf-8.
-- when using wire replies go by default on same transport as input :
+- When using REPL style input, reply is printed on STDOUT as utf-8.
+- When using wire replies go by default on same transport as input :
     * file input always gets on file named "/tmp/pglite/base/.s.PGSQL.5432.out"
     * memory input get memory output, except if results is overflowing : then it will go to file output. ( N/I )
 
@@ -36,7 +36,7 @@ while repl style uses C style \0 termination of query buffer, or EOF in case of 
     size of reply when using wasm memory is given by  pglite.interactive_read() as an integer.
     offset of reply is 2+query size as in this layout:
 
-    [ 1, query, gap of 1,  result ]
+    [ start at 1, query(utf-8 wire), gap of 1, result(utf-8 wire) ]
 ```
 
 
@@ -47,8 +47,11 @@ while repl style uses C style \0 termination of query buffer, or EOF in case of 
 in any case default C calling conventions apply and filesystems follow POSIX conventions. C.UTF-8 is the default locale and cannot be changed.
 
 
-for generic setup,  setenv/getenv is used
-Keeping keys close to actual postgres env control, or maybe prefixed PGL_ when it only concerns the pglite bridge.
+for generic setup,  setenv/getenv is used : PGSYSCONFDIR PGCLIENTENCODING PGTZ PGDATABASE PGUSER PG_COLOR
+do not change PREFIX and PGDATA they are reserved.
+
+TODO: Keeping keys close to actual postgres env control when possible.
+IDEAS: maybe prefixed PGL_ when they only concerns the pglite bridge.
 
 ___
 in order of call :
@@ -100,6 +103,40 @@ clear_error(void): clear previous exception.
 
 
 
+Typical Wire Session (assuming query has been encoded into `query_wire_buffer` and its size is `query_wire_size`) in pseudo-code:
+
+```
+// once on startup
+
+pgl_initdb()
+pgl_backend()
+
+
+// beginning of the query/result loop
+{
+    use_wire(1)
+
+    if ( query_wire_size < 12MiB )
+        memcpy( 1+&wasm_memory, &query_wire_buffer, query_wire_size);
+        interactive_write(query_wire_size)
+    else {
+        write buffer to "/tmp/pglite/base/.s.PGSQL.5432.lock.in" file.
+        rename to "/tmp/pglite/base/.s.PGSQL.5432.in"
+    }
+
+    interactive_one()
+    result_size = interactive_read()
+
+    decode_wire_result( &wasm_memory + 2 + query_wire_size)
+}
+// end of the query/result loop
+
+
+
+// exit
+
+
+```
 
 
 
