@@ -1,7 +1,33 @@
 # libpglite
-- libpglite is a thin load/wrapper around postgresql backend, initdb, and some transport facilities inspired from frontends.
+
+libpglite is a thin load/wrapper around postgresql backend, initdb, and some transport facilities inspired from frontends.
+data transport can be a contiguous memory area (cma), a file pair or a mix.
+libpglite can be compiled to wasi32, emscripten32 and native 32/64 static library
+
+
+Current status : draft
+
+TODO:
+- CMA overflowing handling is currently not implemented.
+- Exception handling in wasi requires some API additions.
+- need to reduce native build linking ram usage.
+- test wasm 64 bits build.
+- provides more prebuilts for libpglite native.
+- framework for postgres regression test suite.
+
+
+
+
+
+## initdb/backend:
+
+
 - initdb part is fully automated to create a default database "template1" with user "postgres" with md5 password "password" in "/tmp/pglite/base" folder ( real or not ).
-- libpglite part only takes queries in input, and output results. All encoded in UTF-8.
+    - parameters are provided by environnement variables.
+    - muti-status is handled by bitmask values on returned integer.
+
+
+- libpglite backend part only takes queries in input, and output results. All encoded in UTF-8.
 
     - possible inputs are:
 
@@ -17,6 +43,10 @@ while repl style uses C style \0 termination of query buffer, or EOF in case of 
 ```
 
 
+
+
+
+
 ## memory/file transport:
 
 #### Queries:
@@ -30,7 +60,7 @@ while repl style uses C style \0 termination of query buffer, or EOF in case of 
 - When using REPL style input, reply is printed on STDOUT as utf-8.
 - When using wire replies go by default on same transport as input :
     * file input always gets on file named "/tmp/pglite/base/.s.PGSQL.5432.out"
-    * memory input get memory output, except if results is overflowing : then it will go to file output. ( N/I )
+    * memory input normally gets memory output, except if results is overflowing : then it will go to file output. ( N/I )
 
 ```
     size of reply when using wasm memory is given by  pglite.interactive_read() as an integer.
