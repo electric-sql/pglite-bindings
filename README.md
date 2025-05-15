@@ -78,7 +78,7 @@ in any case default C calling conventions apply and filesystems follow POSIX con
 
 
 for generic setup,  setenv/getenv is used : PGSYSCONFDIR PGCLIENTENCODING PGTZ PGDATABASE PGUSER PG_COLOR
-do not change PREFIX and PGDATA they are reserved.
+do not change PREFIX and PGDATA they are currently reserved : changing them is totally untested.
 
 TODO: Keeping keys close to actual postgres env control when possible.
 IDEAS: maybe prefixed PGL_ when they only concerns the pglite bridge.
@@ -181,10 +181,11 @@ Currently testing working with wasmtime offical embedding:
 
 - python unix socket gateway to pglite ( tested against pg_dump/psql )
 
-    pglite: `python3 17.x/wasi-python/pglite-wasi-gateway.py`
+    pglite: `python3 asyncify.py 17.x/wasi-python/pglite-wasi-gateway.py`
+    add argument `inet` for a tcp/ip socket server instead of unix socket.
+
 
     a client: `psql "host=/tmp user=postgres sslmode=disable password=postgres require_auth=md5 dbname=template1"`
-
 
 
 
