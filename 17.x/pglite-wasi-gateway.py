@@ -72,12 +72,23 @@ pglite.pgl_backend()
 
 print(
     f"""
+File Transport :
+
+{SLOCK=}
+{SINPUT=}
+
+{CLOCK=}
+{CINPUT=}
+
+CMA Transport :
+addr={pglite.get_buffer_addr(0)}
+size={pglite.get_buffer_size(0)}
 
 initdb returned : {bin(rv)}
 
 {SI(pglite.Memory.size)=}
 
-{SI(pglite.Memory.data_len)=} <= with included 12 MiB shared memory
+{SI(pglite.Memory.data_len)=} <= with included {pglite.get_buffer_size(0)} MiB shared memory
 
 {pglite=}
 
@@ -120,6 +131,7 @@ class Client:
 
             def pump():
                 global CLOCK_in_progress
+#                print('-pump-', 'eof')
                 cdata = None
                 if not CLOCK_in_progress:
                     if os.path.isfile(CLOCK):
@@ -130,7 +142,7 @@ class Client:
                     with open(CINPUT, "rb") as file:
                         cdata = file.read()
                     os.unlink(CINPUT)
-                    dbg(f"\n130: {CINPUT} : pg->cli", len(cdata))
+                    dbg(f"\n130: {CINPUT} : pg->cli", cdata or '')
                     CLOCK_in_progress = False
                 return cdata
 
@@ -138,6 +150,7 @@ class Client:
             def pump():
                 global CMA_QUERY
                 reply = pglite.interactive_read()
+#                print('-pump-', reply)
                 if reply:
                     # print( pglite.Memory.mpeek(0, CMA_QUERY+3+reply) )
                     cdata = bytes( pglite.Memory.mpeek(2+CMA_QUERY,CMA_QUERY+2+reply) )
@@ -214,7 +227,8 @@ class Client:
                     print(hexc(clientData, way="s>c", lines=25))
 
                     try:
-                        bytesWritten = self.__clientSocket.sendall(clientData) or len(clientData)
+                        #bytesWritten = self.__clientSocket.sendall(clientData) or len(clientData)
+                        bytesWritten = self.__clientSocket.send(clientData) # or len(clientData)
                     except BrokenPipeError:
                         print("connection reset")
                         return
@@ -371,13 +385,17 @@ async def main():
 
         # asyncio.get_running_loop().create_task(repl())
 
-    print("Server is listening for incoming connections...")
-    while not USER_QUIT:
-        connection, client_address = server.accept()
-        FD = connection.fileno()
-        asyncio.create_task( Client(connection, "127.0.0.1", 5432).run() )
-        await asyncio.sleep(0.016)
+    print("Server is listening for incoming connections in non blocking mode ...")
 
+    server.setblocking(0)
+
+    while not USER_QUIT:
+        try:
+            connection, client_address = server.accept()
+            FD = connection.fileno()
+            asyncio.create_task( Client(connection, "127.0.0.1", 5432).run() )
+        except BlockingIOError:
+            await asyncio.sleep(0.016)
 
     server.close()
 

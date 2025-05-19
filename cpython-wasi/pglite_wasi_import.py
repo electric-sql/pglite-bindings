@@ -23,12 +23,12 @@ import wasmtime
 
 # defaults
 MOUNT = "tmp"
-io_path = "/tmp/pglite/base/.s.PGSQL.5432"
+IO_PATH = "/tmp/pglite/base/.s.PGSQL.5432"
 
 sync_importer = None
 
 async def main():
-    global MOUNT, io_path
+    global MOUNT, IO_PATH
 
     if is_file("tmp/pglite/base/PG_VERSION"):
         print(" ---------- local db -------------")
@@ -74,9 +74,9 @@ async def main():
 
                     print(f"\nDownloading of {url} complete.")
                     return True
-        if not await download_file("https://electric-sql.github.io/pglite-build/pglite-wasi.tar.xz"):
-            print("prebuilt not found, falling back to devel build")
-            await download_file("http://pmp-p.ddns.net/pglite-web/pglite-wasi.tar.xz")
+        if not await download_file("http://pmp-p.ddns.net/pglite-web/pglite-wasi.tar.xz"):
+            print("dev build not found, falling back to CI build")
+            await download_file("https://electric-sql.github.io/pglite-build/pglite-wasi.tar.xz")
 
         try:
             with tarfile.open("pglite-wasi.tar.xz") as archive:
@@ -91,12 +91,12 @@ async def main():
 
     # set base path for I/O ( wasi fs )
     if not MOUNT.startswith('/'):
-        io_path = '.' + io_path
+        IO_PATH = '.' + IO_PATH
 
     print(f"""
 
 {MOUNT=}
-{io_path=}
+{IO_PATH=}
 
 """)
 
@@ -289,7 +289,7 @@ def get_io_base_path():
     global sync_importer
     if sync_importer is None:
         raise Exception("No wasi module in use")
-    return io_path
+    return IO_PATH
 
 
 async def wasm_import(alias, wasmfile, **options):
