@@ -175,19 +175,23 @@ pgl_backend()
 
 
 # pglite-bindings
-(WIP) various language support for libpglite native
+(WIP) various language support for libpglite native.
 
 Currently testing working with wasmtime offical embedding:
 
 - python unix socket gateway to pglite ( tested against pg_dump/psql )
 
-    pglite: `python3 asyncify.py 17.x/wasi-python/pglite-wasi-gateway.py`
+    pglite: `python3 cpython-wasi/asyncify.py 17.x/pglite-wasi-gateway.py`
     add argument `inet` for a tcp/ip socket server instead of unix socket.
+    nb: run once the first time to create one db then again to serve it
 
 
-    a client: `psql "host=/tmp user=postgres sslmode=disable password=postgres require_auth=md5 dbname=template1"`
+    a typical client: `psql "host=/tmp user=postgres sslmode=disable password=postgres require_auth=md5 dbname=template1"`
 
 
+    Notes:
+        The wasmtime module has the same api as the native python module.
+        But native module must be built for each platform : wasi is easier to work with.
 
 
 Also some Community experiments :
@@ -197,6 +201,7 @@ Also some Community experiments :
 
     WIP kotlin/graalvm:
         https://github.com/emrul/pglite-graalvm
+
 
 
 

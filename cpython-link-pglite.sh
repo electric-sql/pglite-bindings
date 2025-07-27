@@ -56,14 +56,18 @@ else
     fi
 fi
 
+
 pushd ${PGL_DIST_NATIVE}
     echo "
 
 ______________________________________
 Testing with $PYTHON
+$(pwd)
+$(cat md5sum$(python3-config --extension-suffix).txt)
 ______________________________________
 
 "
+
 
     if [ -f ${WASM2C}$PYEXT ]
     then

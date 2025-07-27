@@ -16,10 +16,16 @@ def pip_install(pkg, fqn=''):
         __import__("importlib").invalidate_caches()
     return __import__(pkg)
 
-for req in ('wasmtime','aiohttp'):
+for req in ('wasmtime', 'aiohttp', 'pywasm'):
     pip_install(req)
 
-import wasmtime
+if 1:
+    import wasmtime
+    WIP = False
+else:
+    import pywasi as wasmtime
+    sys.modules['wasmtime'] = wasmtime
+    WIP = True
 
 # defaults
 MOUNT = "tmp"
@@ -110,9 +116,14 @@ async def main():
         class __module:
 
             def __init__(self, vm, wasmfile):
+
                 self.store = vm.store
                 self.module = vm.Module.from_file(vm.linker.engine, wasmfile)
+                if WIP:
+                    raise SystemExit
+
                 self.instance = vm.linker.instantiate(self.store, self.module)
+
                 self.mem = self.instance.exports(self.store)["memory"]
                 self.get("_start")()
 
@@ -130,8 +141,8 @@ async def main():
                 return list(wasm_mod.instance.exports(wasm_mod.store).keys())
 
         #  #, Instance, Trap, MemoryType, Memory, Limits, WasmtimeError
-
         from wasmtime import WasiConfig, Linker, Engine, Store, Module
+
 
         config = WasiConfig()
         config.argv = ["--single", "postgres"]
@@ -165,8 +176,6 @@ async def main():
             self.config.env = self.env
             self.store.set_wasi(self.config)
 
-            import sys
-
             py_mod = type(sys)(alias)
             wasm_mod = self.__module(self, wasmfile)
 
@@ -198,6 +207,7 @@ async def main():
 
             sys.modules[alias] = py_mod
             wasi_import.current = py_mod
+
 
     return wasi_import
 
@@ -256,7 +266,7 @@ def SI(n):
         return "%3.0f B" % n
 
     if intn // 1024 < 999:
-        return "%3.2f kiB" % (n / 1024)
+        return "%3.2f KiB" % (n / 1024)
 
     mb = 1048576
     if intn // mb < 999:

@@ -39,7 +39,7 @@ print(f"""
 
 
 os.chdir(aic.file.parent)
-print(f"changing to dir : {os.getcwd()}")
+print(f"Changing to dir : {os.getcwd()}")
 sys.path.insert(0, str(aic.file.parent))
 
 with open(aic.file, 'r') as source:

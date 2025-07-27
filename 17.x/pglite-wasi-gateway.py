@@ -31,14 +31,20 @@ options = {
     "PREFIX": "/tmp/pglite",
 }
 
-
-
 if is_file("/tmp/fs/tmp/pglite/bin/pglite.wasi"):
     print("  ========== devel version =============")
     wasi_bin = "/tmp/fs/tmp/pglite/bin/pglite.wasi"
+    PROMPT = "devel>"
+
+elif is_file("/srv/www/html/pglite-web/pglite.wasi"):
+    print("  ========== latest version =============")
+    wasi_bin = "/srv/www/html/pglite-web/pglite.wasi"
+    PROMPT = "latest>"
 else:
     print("  -------- demo version ----------")
     wasi_bin = "tmp/pglite/bin/pglite.wasi"
+    PROMPT = "demo>"
+
 print(f"{wasi_bin = }")
 await wasm_import("pglite", wasi_bin, **options)
 
@@ -109,6 +115,7 @@ def dbg(code, data):
 
 class Client:
     cids = 0
+    connected = 0
 
     def __init__(self, clientSocket, targetHost, targetPort):
         self.__class__.cids += 1
@@ -127,39 +134,39 @@ class Client:
             except:
                 pass
 
-        if not USE_CMA:
+        def pump_sf():
+            global CLOCK_in_progress
+            cdata = None
+            if not CLOCK_in_progress:
+                if os.path.isfile(CLOCK):
+                    print(f"{CLOCK} : server is reply in progress ...")
+                    CLOCK_in_progress = True
 
-            def pump():
-                global CLOCK_in_progress
-#                print('-pump-', 'eof')
+            if os.path.isfile(CINPUT):
+                with open(CINPUT, "rb") as file:
+                    cdata = file.read()
+                os.unlink(CINPUT)
+                dbg(f"\n130: {CINPUT} : pg->cli", cdata or '')
+                CLOCK_in_progress = False
+            return cdata
+
+        def pump_cma():
+            global CMA_QUERY
+            reply = pglite.interactive_read()
+            if reply:
+                cdata = bytes( pglite.Memory.mpeek(2+CMA_QUERY,CMA_QUERY+2+reply) )
+                print(f"pglite -> socket [{self.cid}], reply length {reply} at {CMA_QUERY+3}:")
+                pglite.interactive_write(0)
+                CMA_QUERY = 0
+            else:
                 cdata = None
-                if not CLOCK_in_progress:
-                    if os.path.isfile(CLOCK):
-                        print(f"{CLOCK} : server is reply in progress ...")
-                        CLOCK_in_progress = True
+            return cdata
 
-                if os.path.isfile(CINPUT):
-                    with open(CINPUT, "rb") as file:
-                        cdata = file.read()
-                    os.unlink(CINPUT)
-                    dbg(f"\n130: {CINPUT} : pg->cli", cdata or '')
-                    CLOCK_in_progress = False
-                return cdata
+        def pump():
+            if pglite.get_channel()<0:
+                return pump_sf()
+            return pump_cma()
 
-        else:
-            def pump():
-                global CMA_QUERY
-                reply = pglite.interactive_read()
-#                print('-pump-', reply)
-                if reply:
-                    # print( pglite.Memory.mpeek(0, CMA_QUERY+3+reply) )
-                    cdata = bytes( pglite.Memory.mpeek(2+CMA_QUERY,CMA_QUERY+2+reply) )
-                    print(f"pglite -> socket [{self.cid}], reply length {reply} at {CMA_QUERY+3}:")
-                    pglite.interactive_write(0)
-                    CMA_QUERY = 0
-                else:
-                    cdata = None
-                return cdata
 
 
         try:
@@ -171,10 +178,18 @@ class Client:
         targetHostData = b""
         terminate = False
 
+        Client.connected += 1
+
+        # reset the prompt line
+        print("\r\n-> new client connected")
+        print(f"[{Client.connected}] {PROMPT} ", end='')
+        sys.stdout.flush()
+
+
         while not (USER_QUIT or SYS_QUIT):
 
             if USER_SQL:
-                send_line(USER_SQL)
+                send_repl_line(USER_SQL)
                 USER_SQL =""
                 pglite.interactive_one()
 
@@ -186,6 +201,8 @@ class Client:
 
             try:
                 inputsReady, outputsReady, errorsReady = select.select(inputs, outputs, [], 0.016)
+            except ValueError:
+                break # fd -1
             except Exception as e:
                 sys.print_exception(e)
                 break
@@ -211,10 +228,10 @@ class Client:
             data = pump()
             if data and len(data) > 0:
                 clientData += data
-                if 0:
-                    print("@@@@@ INJECTION")
-                    if PKT_NUM==3:
-                        clientData += bytes([0x5a, 0x00, 0x00, 0x00, 0x05, 0x49])
+#                if 0:
+#                    print("@@@@@ INJECTION")
+#                    if PKT_NUM==3:
+#                        clientData += bytes([0x5a, 0x00, 0x00, 0x00, 0x05, 0x49])
 
 
             if targetHostData:
@@ -225,24 +242,27 @@ class Client:
             for out in outputsReady:
                 if out == self.__clientSocket and (len(clientData) > 0):
                     print(hexc(clientData, way="s>c", lines=25))
+                    while clientData:
+                        try:
+                            bytesWritten = self.__clientSocket.send(clientData) # or len(clientData)
+                            if bytesWritten>0:
+                                clientData = clientData[bytesWritten:]
+                        except BlockingIOError:
+                            await asyncio.sleep(0)
+                        except BrokenPipeError:
+                            print("connection reset")
+                            return
 
-                    try:
-                        #bytesWritten = self.__clientSocket.sendall(clientData) or len(clientData)
-                        bytesWritten = self.__clientSocket.send(clientData) # or len(clientData)
-                    except BrokenPipeError:
-                        print("connection reset")
-                        return
-                    if bytesWritten > 0:
-                        clientData = clientData[bytesWritten:]
-                        if 0:
-                            if PKT_NUM==3:
-                                print("\n\n\n@@@@@ INJECTION CLOSE")
-                                self.__clientSocket.close()
-                                terminate = True
-                                break
-                            if PKT_NUM==9:
-                                print("\n\n\n@@@@@ INJECTION EMPTY")
-                                self.__clientSocket.sendall(b'')
+#                    if bytesWritten > 0:
+#                        if 0:
+#                            if PKT_NUM==3:
+#                                print("\n\n\n@@@@@ INJECTION CLOSE")
+#                                self.__clientSocket.close()
+#                                terminate = True
+#                                break
+#                            if PKT_NUM==9:
+#                                print("\n\n\n@@@@@ INJECTION EMPTY")
+#                                self.__clientSocket.sendall(b'')
 
                 elif out == "pglite" and (len(targetHostData) > 0):
                     PKT_NUM+=1
@@ -272,10 +292,14 @@ class Client:
                     sys.print_exception(e)
                     print("======================== custom ex ===============================")
                     pglite.clear_error()
+                    if os.path.isfile(SINPUT):
+                        print("======================== socket reset ===========================")
+                        os.unlink(SINPUT)
+                    pglite.interactive_write(-1)
+                    print("======================== error cleared ===========================")
                     pglite.use_wire(1)
-                    pglite.interactive_write(0)
                     pglite.interactive_one()
-                    print("======================== custom ex ===============================")
+                    print("======================== /custom ex ===============================")
 
             if terminate:
                 break
@@ -284,10 +308,11 @@ class Client:
             if not state:
                 print(f" ------------ pgl {state=} {self.cid=} ----------------")
                 self.__clientSocket.close()
-            await asyncio.sleep(0.016)
+            await asyncio.sleep(0.0)
 
-        print("Client [{self.cid}] task terminating")
+        print(f"Client [{self.cid}] task terminating")
         self.__clientSocket.close()
+        Client.connected -= 1
 
 TESTS = """
 
@@ -317,11 +342,16 @@ SELECT addition(40,2);
 
 DONE = 0
 
+REPL_BUF = []
 
-def send_line(line):
+
+def send_repl_line(line):
     pglite.use_wire(0)
     line = line.rstrip("\r\n; ") + ";"
-    print(f"REPL: {line}")
+    print(f"""------ REPL -------
+{line}
+-------------------
+""")
     sql_bytes_cstring = line.encode("utf-8") + b"\0"  # <- do not forget this one, wasmtime won't add anything!
     pglite.Memory.mpoke(1, sql_bytes_cstring)
 
@@ -331,19 +361,52 @@ async def tests():
     for line in TESTS.split(";\n\n"):
         await asyncio.sleep(0.5)
         if line.strip():
-            send_line(line)
+            send_repl_line(line)
     await asyncio.sleep(0.5)
     DONE = 1
 
 async def repl():
-    global USER_SQL, USER_QUIT, SYS_QUIT
+    global REPL_BUF, USER_SQL, USER_QUIT, SYS_QUIT, PROMPT
     while not SYS_QUIT:
-        sql = await ainput("sql> ")
+        if len(REPL_BUF):
+            sql = await ainput(f"[{Client.connected}] ... ")
+        else:
+            sql = await ainput(f"[{Client.connected}] {PROMPT} ")
         sql = sql.decode().strip()
-        if sql == "q":
+        if sql.strip().lower() == "q":
             USER_QUIT = True
             return
+
+        multi_test = sql.strip().rstrip(';')
+
+        if not multi_test:
+            continue
+
+        if multi_test.endswith(' $$'):
+            REPL_BUF.append(sql)
+            continue
+
+        if len(REPL_BUF):
+            REPL_BUF.append(sql)
+            if multi_test != '$$':
+                continue
+
+            sql = '\n'.join(REPL_BUF)
+            REPL_BUF.clear()
+
         USER_SQL = sql
+
+        if not Client.connected:
+            # do REPL
+            send_repl_line(USER_SQL)
+            USER_SQL =""
+            pglite.interactive_one()
+
+
+
+
+
+
 
 
 async def main():
@@ -383,11 +446,22 @@ async def main():
             pglite.interactive_one()
             await asyncio.sleep(0.016)
 
-        # asyncio.get_running_loop().create_task(repl())
 
-    print("Server is listening for incoming connections in non blocking mode ...")
 
+    print("""
+
+Server is listening for 1 incoming connection in non-blocking mode ...
+Type sql command or 'q' and validate to quit ...
+
+""")
+
+    # do not block into socket server, we want to handle REPL I/O too.
     server.setblocking(0)
+
+
+    # start repl in background
+    asyncio.get_running_loop().create_task(repl())
+
 
     while not USER_QUIT:
         try:
@@ -400,3 +474,12 @@ async def main():
     server.close()
 
 await main()
+
+print('\r\nCleaning up temp files')
+import glob
+
+for temp in (*glob.glob('tmp/initdb.*.txt'),*glob.glob('tmp/PostgreSQL*'),):
+    print( temp )
+    os.unlink(temp)
+
+
