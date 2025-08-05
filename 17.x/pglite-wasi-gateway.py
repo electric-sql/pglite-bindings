@@ -22,7 +22,7 @@ PKT_NUM = 0
 # Set the path for the Unix socket
 socket_path = "/tmp/.s.PGSQL.5432"
 
-from pglite_wasi_import import wasm_import, is_file, poke, ainput, get_io_base_path, hexc, SI
+from pglite_wasi_import import wasm_import, pg_dump, is_file, poke, ainput, get_io_base_path, hexc, SI
 
 options = {
     "REPL": "N",
@@ -34,19 +34,23 @@ options = {
 if is_file("/tmp/fs/tmp/pglite/bin/pglite.wasi"):
     print("  ========== devel version =============")
     wasi_bin = "/tmp/fs/tmp/pglite/bin/pglite.wasi"
+    pg_dump_bin  = "/tmp/fs/tmp/pglite/bin/pg_dump.wasi"
     PROMPT = "devel>"
 
 elif is_file("/srv/www/html/pglite-web/pglite.wasi"):
     print("  ========== latest version =============")
     wasi_bin = "/srv/www/html/pglite-web/pglite.wasi"
+    pg_dump_bin  = "/srv/www/html/pglite-web/bin/pg_dump.wasm"
     PROMPT = "latest>"
 else:
     print("  -------- demo version ----------")
     wasi_bin = "tmp/pglite/bin/pglite.wasi"
+    pg_dump_bin  = "tmp/pglite/bin/pgdump.wasi"
     PROMPT = "demo>"
 
-print(f"{wasi_bin = }")
-await wasm_import("pglite", wasi_bin, **options)
+
+
+await wasm_import("pglite", wasi_bin, imports={}, argv=("--single", "postgres",), **options)
 
 io_path = get_io_base_path()
 
@@ -78,6 +82,10 @@ pglite.pgl_backend()
 
 print(
     f"""
+
+{wasi_bin = }
+{pg_dump_bin = }
+
 File Transport :
 
 {SLOCK=}
@@ -94,15 +102,20 @@ initdb returned : {bin(rv)}
 
 {SI(pglite.Memory.size)=}
 
-{SI(pglite.Memory.data_len)=} <= with included {pglite.get_buffer_size(0)} MiB shared memory
+{SI(pglite.Memory.data_len)=} <= with included {SI(pglite.get_buffer_size(0))} shared memory
 
+-------------- API (wip) --------------
 {pglite=}
-
 """
 )
 
 for k in dir(pglite):
     print("\t", k)
+
+print("""
+---------------------------------------
+""")
+
 
 
 def dbg(code, data):
@@ -121,7 +134,7 @@ class Client:
         self.__class__.cids += 1
         self.cid = self.cids
         self.__clientSocket = clientSocket
-        print(f'\t[[[[  New client [{self.cid}] connection started', clientSocket, targetHost, targetPort, ' ]]]]')
+        print(f'\t[[[[  New client [#{self.cid}] connection started', clientSocket, targetHost, targetPort, ' ]]]]')
 
     async def run(self):
         global pglite, CMA_QUERY, USER_SQL, PKT_NUM
@@ -155,7 +168,7 @@ class Client:
             reply = pglite.interactive_read()
             if reply:
                 cdata = bytes( pglite.Memory.mpeek(2+CMA_QUERY,CMA_QUERY+2+reply) )
-                print(f"pglite -> socket [{self.cid}], reply length {reply} at {CMA_QUERY+3}:")
+                print(f"pglite -> socket [#{self.cid}], reply length {reply} at {CMA_QUERY+3}:")
                 pglite.interactive_write(0)
                 CMA_QUERY = 0
             else:
@@ -228,11 +241,6 @@ class Client:
             data = pump()
             if data and len(data) > 0:
                 clientData += data
-#                if 0:
-#                    print("@@@@@ INJECTION")
-#                    if PKT_NUM==3:
-#                        clientData += bytes([0x5a, 0x00, 0x00, 0x00, 0x05, 0x49])
-
 
             if targetHostData:
                 outputsReady.append("pglite")
@@ -253,22 +261,11 @@ class Client:
                             print("connection reset")
                             return
 
-#                    if bytesWritten > 0:
-#                        if 0:
-#                            if PKT_NUM==3:
-#                                print("\n\n\n@@@@@ INJECTION CLOSE")
-#                                self.__clientSocket.close()
-#                                terminate = True
-#                                break
-#                            if PKT_NUM==9:
-#                                print("\n\n\n@@@@@ INJECTION EMPTY")
-#                                self.__clientSocket.sendall(b'')
-
                 elif out == "pglite" and (len(targetHostData) > 0):
                     PKT_NUM+=1
                     pglite.use_wire(1)
                     bytesWritten = len(targetHostData)
-                    print(hexc(targetHostData, way=f"c>s: unixsocket[{self.cid}] -> pglite #{PKT_NUM} ", lines=25))
+                    print(hexc(targetHostData, way=f"c>s: unixsocket[#{self.cid}] -> pglite #{PKT_NUM} ", lines=25))
 
                     if bytesWritten > 0:
                         if not USE_CMA:
@@ -306,11 +303,11 @@ class Client:
 
             state = pglite.pgl_closed()
             if not state:
-                print(f" ------------ pgl {state=} {self.cid=} ----------------")
+                print(f" ------------ pgl {state=} #{self.cid=} ----------------")
                 self.__clientSocket.close()
             await asyncio.sleep(0.0)
 
-        print(f"Client [{self.cid}] task terminating")
+        print(f"Client [#{self.cid}] task terminating")
         self.__clientSocket.close()
         Client.connected -= 1
 
@@ -365,6 +362,20 @@ async def tests():
     await asyncio.sleep(0.5)
     DONE = 1
 
+
+
+class i32(int):
+    pass
+
+class i64(int):
+    pass
+
+
+def sched_yield() -> i32:
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@ sched_yield @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    return 0
+
+
 async def repl():
     global REPL_BUF, USER_SQL, USER_QUIT, SYS_QUIT, PROMPT
     while not SYS_QUIT:
@@ -381,6 +392,23 @@ async def repl():
 
         if not multi_test:
             continue
+
+        if multi_test == 'help':
+            print("?: pg_dump -v ! pg_dump exec or enter sql")
+
+        if multi_test == '?':
+            imports = {
+                'wasm32_wasi_preview1' : {
+                    'sched_yield': sched_yield,
+                }
+            }
+
+            pg_dump(pg_dump_bin, imports, ('--help',) )
+            continue
+
+        if multi_test == '!':
+            pass
+
 
         if multi_test.endswith(' $$'):
             REPL_BUF.append(sql)
@@ -462,6 +490,7 @@ Type sql command or 'q' and validate to quit ...
     # start repl in background
     asyncio.get_running_loop().create_task(repl())
 
+    idlet = 0.016
 
     while not USER_QUIT:
         try:
@@ -469,7 +498,15 @@ Type sql command or 'q' and validate to quit ...
             FD = connection.fileno()
             asyncio.create_task( Client(connection, "127.0.0.1", 5432).run() )
         except BlockingIOError:
-            await asyncio.sleep(0.016)
+            if not Client.connected:
+                if os.path.isfile(SLOCK):
+                    print(f"WASI client detected on {SLOCK}, serving with a busy loop")
+                    pglite.interactive_one()
+                    idlet = 0
+                else:
+                    idlet = 0.016
+        await asyncio.sleep(idlet)
+
 
     server.close()
 

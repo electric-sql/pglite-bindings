@@ -8,30 +8,12 @@ import importlib
 # sync op
 from os.path import isfile as is_file
 
-def pip_install(pkg, fqn=''):
-    try:
-        __import__(pkg)
-    except:
-        os.system(f'"{sys.executable}" -m pip install --user {fqn or pkg}')
-        __import__("importlib").invalidate_caches()
-    return __import__(pkg)
-
-for req in ('wasmtime', 'aiohttp', 'pywasm'):
-    pip_install(req)
-
-if 1:
-    import wasmtime
-    WIP = False
-else:
-    import pywasi as wasmtime
-    sys.modules['wasmtime'] = wasmtime
-    WIP = True
 
 # defaults
 MOUNT = "tmp"
 IO_PATH = "/tmp/pglite/base/.s.PGSQL.5432"
+sync_wasi_importer = None
 
-sync_importer = None
 
 async def main():
     global MOUNT, IO_PATH
@@ -43,7 +25,7 @@ async def main():
         print(" ---------- devel db -------------")
         MOUNT = "/tmp"
     else:
-        print(" ---------- demo db -------------")
+        print(" ---------- unpacking demo db -------------")
         async def download_file(url, output_path=None):
             import aiohttp
             if output_path is None:
@@ -94,122 +76,30 @@ async def main():
 
     await asyncio.sleep(0)
 
-
     # set base path for I/O ( wasi fs )
     if not MOUNT.startswith('/'):
         IO_PATH = '.' + IO_PATH
 
-    print(f"""
-
-{MOUNT=}
-{IO_PATH=}
-
-""")
-
-    class wasi_import:
-        import os
-
-        current = None
-
-        os.environ["WASMTIME_BACKTRACE_DETAILS"] = "1"
-
-        class __module:
-
-            def __init__(self, vm, wasmfile):
-
-                self.store = vm.store
-                self.module = vm.Module.from_file(vm.linker.engine, wasmfile)
-                if WIP:
-                    raise SystemExit
-
-                self.instance = vm.linker.instantiate(self.store, self.module)
-
-                self.mem = self.instance.exports(self.store)["memory"]
-                self.get("_start")()
-
-            def get(self, export):
-
-                call = self.instance.exports(self.store)[export]
-                store = self.store
-
-                def bound(*argv, **env):
-                    return call(store, *argv, **env)
-
-                return bound
-
-            def __all__(self):
-                return list(wasm_mod.instance.exports(wasm_mod.store).keys())
-
-        #  #, Instance, Trap, MemoryType, Memory, Limits, WasmtimeError
-        from wasmtime import WasiConfig, Linker, Engine, Store, Module
+    return __import__('pywasi').set_fs(MOUNT)
 
 
-        config = WasiConfig()
-        config.argv = ["--single", "postgres"]
-        # config.inherit_argv()
-
-        env = [
-            ["ENVIRONMENT", "wasi-embed"],
-        ]
-
-        # config.inherit_env()
-
-        config.inherit_stdout()
-        config.inherit_stderr()
-
-        config.preopen_dir(MOUNT, "/tmp")
-        if not os.path.isdir("dev"):
-            os.mkdir("dev")
-        with open("dev/urandom", "wb") as rng_out:
-            rng_out.write(os.urandom(128))
-        config.preopen_dir("dev", "/dev")
-
-        linker = Linker(Engine())
-        # linker.allow_shadowing = True
-        linker.define_wasi()
-
-        store = Store(linker.engine)
-
-        def __init__(self, alias, wasmfile, **env):
-            for k, v in env.items():
-                self.env.append([k, v])
-            self.config.env = self.env
-            self.store.set_wasi(self.config)
-
-            py_mod = type(sys)(alias)
-            wasm_mod = self.__module(self, wasmfile)
-
-            class Memory:
-                def __init__(self, mem, mod):
-                    self.mem = mem
-                    self.mod = wasm_mod
-
-                def mpoke(self, addr, b):
-                    return self.mod.mem.write(self.mod.store, b, addr)
-
-                def mpeek(self, addr, stop: None):
-                    return self.mod.mem.read(self.mod.store, addr, stop)
-
-                def __getattr__(self, attr):
-                    if attr == "size":
-                        return self.mod.mem.size(self.mod.store)
-                    if attr == "data_len":
-                        return self.mod.mem.data_len(self.mod.store)
-                    return object.__getattr__(self, attr)
-
-            for k, v in wasm_mod.instance.exports(wasm_mod.store).items():
-                if k == "memory":
-                    setattr(py_mod, "Memory", Memory(v, wasm_mod))
-                    continue
-                if k == "_start":
-                    continue
-                setattr(py_mod, k, wasm_mod.get(k))
-
-            sys.modules[alias] = py_mod
-            wasi_import.current = py_mod
 
 
-    return wasi_import
+#
+async def wasm_import(alias, wasmfile, **options):
+    global sync_wasi_importer
+    # any extra async io like getting the wasm to be done here.
+
+    # return a wasm module mapped to python
+    if sync_wasi_importer is None:
+        sync_wasi_importer = await main()
+    return sync_wasi_importer(alias, wasmfile, **options)
+
+
+def pg_dump(bin, imports, argv):
+    sync_wasi_importer('pg_dump', bin, imports = imports, argv=argv)
+
+
 
 def poke(string):
     if isinstance(string, str):
@@ -296,18 +186,7 @@ async def ainput(prompt=""):
 
 
 def get_io_base_path():
-    global sync_importer
-    if sync_importer is None:
-        raise Exception("No wasi module in use")
     return IO_PATH
-
-
-async def wasm_import(alias, wasmfile, **options):
-    global sync_importer
-    if sync_importer is None:
-        sync_importer = await main()
-    print(f"importing {alias} from {wasmfile}")
-    return sync_importer(alias, wasmfile, **options)
 
 
 
